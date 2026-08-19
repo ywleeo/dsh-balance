@@ -1,0 +1,29 @@
+{
+  "name": "dsh-balance",
+  "version": "0.1.0",
+  "description": "在 dsh Web 对话底部（token 统计前）显示 DeepSeek 账户余额的精简插件",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "sync": "bash scripts/sync.sh",
+    "release": "bash scripts/release.sh"
+  }
+}
