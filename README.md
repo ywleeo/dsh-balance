@@ -2,6 +2,12 @@
 
 在 dsh Web 对话底部显示 DeepSeek 账户余额的精简插件 —— 一行小字，排在**会话数据（token 统计）前面**。
 
+## 截图
+
+余额与 token 统计同一行显示（`¥192.04 ⟳` 在最前，无多余文字）：
+
+![dsh-balance 余额显示](assets/screenshots/balance.png)
+
 ## 特性
 
 - ✅ 挂在 `conversation.composer.dock`（`order: -1`），显示在 token 统计行（`order 0`）前面

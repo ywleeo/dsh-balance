@@ -1,6 +1,6 @@
 {
   "name": "dsh-balance",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "在 dsh Web 对话底部（token 统计前）显示 DeepSeek 账户余额的精简插件",
   "license": "MIT",
   "type": "module",
