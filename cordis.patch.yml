@@ -1,0 +1,11 @@
+# dsh-balance bundle patch: mounts the account-balance strip into a dsh web
+# composition.
+#
+# Host half (index.js) reads the DeepSeek account balance; the client half
+# (client.js) renders it at the bottom of the conversation, just before the
+# token counter.
+#
+# Installed with: dsh plugin --profile web add "github:ywleeo/dsh-balance#main"
+- insert:
+    - id: dsh-balance
+      name: dsh-balance
