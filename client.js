@@ -7,6 +7,9 @@
  * 其余为空闲半价）实时判定，高峰时余额文本显示警示色（--dsw-alias-state-warn-label），
  * 空闲时显示正常色；每分钟核对一次，高峰期跨边界自动切换。
  *
+ * 链接入口：拿到余额时把数字渲染成 <a>，点击在新 tab 打开官方余额/充值页
+ * （platform.deepseek.com/top_up），出错/加载时保持纯文本不可点。
+ *
  * dsh 客户端加载器用经典 <script> 拉取本文件，需 window.__ModuleLoader__.load
  * 注册；工厂内 require() 由平台种子词表应答（react 是种子词）。
  */
@@ -20,6 +23,9 @@ window.__ModuleLoader__.load({
     var useCallback = React.useCallback
 
     var POLL_MS = 5 * 60 * 1000
+
+    /** 官方余额/用量面板页：点击余额数字时在新 tab 打开。 */
+    var BALANCE_PAGE_URL = 'https://platform.deepseek.com/usage'
 
     /** 把 host 的长文本 "CNY 194.56（赠送 0.00 / 充值 194.56）" 缩成 "¥194.56"。 */
     function shortBalance(text) {
@@ -95,11 +101,18 @@ window.__ModuleLoader__.load({
       var tip = peak
         ? '高峰计费时段（北京时间 周一至周五 09:00-12:00 / 14:00-18:00）'
         : '空闲计费时段（半价）'
+      // 只在拿到余额时把数字渲染成链接，点击在新 tab 打开官方余额/充值页；出错/加载时保持纯文本。
+      var balanceEl = value !== null
+        ? el('a', {
+            className: cls,
+            title: tip,
+            href: BALANCE_PAGE_URL,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+          }, text)
+        : el('span', { className: cls, title: tip }, text)
       return el('div', { className: 'dsh-balance-dock' },
-        el('span', {
-          className: cls,
-          title: tip,
-        }, text),
+        balanceEl,
         el('button', {
           className: 'dsh-balance-refresh',
           type: 'button',
@@ -140,6 +153,7 @@ window.__ModuleLoader__.load({
             '.dsh-balance-dock { display: contents !important; }',
             '.dsh-balance-dock + *, .dsh-balance-dock + * > * { display: contents !important; }',
             '.dsh-balance-text { font-size: 12px; line-height: 20px; color: var(--dsw-alias-label-primary); white-space: nowrap; }',
+            'a.dsh-balance-text { text-decoration: none; cursor: pointer; }',
             '.dsh-balance-peak { color: var(--dsw-alias-state-warn-label); }',
             '.dsh-balance-error { color: var(--dsw-alias-state-error-primary); }',
             '.dsh-balance-refresh { background: none; border: none; padding: 0;',
