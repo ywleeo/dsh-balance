@@ -1,90 +1,81 @@
 /**
- * dsh-balance —— 在 dsh Web 对话底部显示 DeepSeek 账户余额。
+ * dsh-balance 启动壳（boot shell）。
  *
- * host 侧（本文件）：
- *  - 在 webServer 注册 /plugins/dsh-balance/balance 路由（GET）。
- *  - 从凭据服务解析 DEEPSEEK_API_KEY（与 llm-deepseek 同一 key 缝），
- *    请求 https://api.deepseek.com/user/balance，返回 JSON：
- *    { balance: "CNY 195.18（赠送 0.00 / 充值 195.18）" | null, error: string | null }
- *  - 不写会话日志、不注册投影、不碰 token meter —— 纯只读查询。
+ * 为什么有这个文件：dsh 的 loader 条目一旦激活失败，boot 的激活审计会把整棵
+ * 插件树判死、进程非零退出——插件崩了，等于 dsh 起不来。而插件恰恰是最容易
+ * 被核心升级打坏的东西。这个壳把"会坏的部分"赶出启动路径：壳自己只做一件事，
+ * 运行时动态加载 ./host.js 并挂成子插件；加载失败或激活失败都只丢功能，
+ * dsh 照常启动。
  *
- * client 侧见 client.js：注册进 conversation.composer.dock（order -1），
- * 渲染在 token 统计行（order 0）前面。
+ * 约定（改这个文件之前先读一遍）：
+ *  1. 壳必须极稳：不 import 任何 dsh 核心模块，不读配置，不做 IO。
+ *  2. 真正的插件逻辑全在 host.js，随便改、随便升级——它坏了不影响启动。
+ *  3. 壳不声明 inject，所以它的 loader 条目永远 ACTIVE；host.js 自己的 inject
+ *     在子 fiber 上照常生效（webServer 没就绪就先挂起，就绪后自动激活）。
+ *  4. package.json 的 main 仍指向本文件，dsh.client 与 exports["./client"] 也
+ *     不动——客户端那一半靠 loader 条目名去找包，路径不能变。
  */
 
 export const name = 'dsh-balance'
 
-/** 硬依赖：路由注册的前提；冷启动时按依赖顺序挂载。 */
-export const inject = ['webServer']
+/** 真实插件模块，相对于本文件。 */
+const HOST = './host.js'
 
-const ROUTE_PATH = '/plugins/dsh-balance/balance'
-const API_KEY_ENV = 'DEEPSEEK_API_KEY'
-const BASE_URL = process.env.DEEPSEEK_BASE_URL?.trim() || 'https://api.deepseek.com'
-const TIMEOUT_MS = 15000
-
-/** 余额信息格式化为展示文本（多币种用 · 分隔）。 */
-function formatBalance(data) {
-  const infos = data.balance_infos ?? []
-  if (infos.length === 0) return '（无余额信息）'
-  return infos
-    .map((info) => {
-      const granted = info.granted_balance ?? '0'
-      const topped = info.topped_up_balance ?? '0'
-      return `${info.currency} ${info.total_balance}（赠送 ${granted} / 充值 ${topped}）`
-    })
-    .join('  ·  ')
-}
-
-/** 查询余额：返回 { balance, error }，绝不抛异常。 */
-async function queryBalance(ctx) {
+/** 报告一次加载失败：插件停用，dsh 继续跑。这个函数自己不许抛。 */
+function report(ctx, error) {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+  const line = '[dsh-balance] host.js 加载失败，插件功能已停用，dsh 继续运行。原因：' + detail
   try {
-    const credentials = ctx.get('credentials')
-    let apiKey
-    if (credentials !== undefined) {
-      const hit = await credentials.resolve(API_KEY_ENV)
-      if (hit !== undefined) apiKey = hit.value
+    if (typeof ctx?.logger?.error === 'function') {
+      ctx.logger.error('%s', line)
+      return
     }
-    if (apiKey === undefined || apiKey === '') {
-      return { balance: null, error: '未找到 DEEPSEEK_API_KEY，请先在 设置 → 模型 中配置 API Key' }
-    }
-    const response = await fetch(`${BASE_URL}/user/balance`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    })
-    if (!response.ok) {
-      return { balance: null, error: `余额接口请求失败（HTTP ${response.status}）` }
-    }
-    const data = await response.json()
-    if (data.is_available !== true) {
-      return { balance: null, error: '当前账户余额不可用（is_available 为 false）' }
-    }
-    return { balance: formatBalance(data), error: null }
-  } catch (error) {
-    return {
-      balance: null,
-      error: `查询余额失败：${error instanceof Error ? error.message : String(error)}`,
-    }
+  } catch {
+    // logger 不可用或自己炸了，退到 stderr
+  }
+  try {
+    console.error(line)
+  } catch {
+    // 连 stderr 都不可用也不能让壳变成新的启动故障点
   }
 }
 
-/** 余额路由：客户端 fetch 同源相对路径即可，key 永不出 host。 */
-async function handleBalance(req, res, ctx) {
-  const result = await queryBalance(ctx)
-  try {
-    res.writeHead(200, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-    })
-    res.end(JSON.stringify(result))
-  } catch { /* socket gone */ }
+/**
+ * 插件入口。同步返回，真正的加载丢给后台任务：壳的 fiber 立即 ACTIVE，
+ * boot 不会等待这次动态导入。
+ */
+export function apply(ctx) {
+  void mount(ctx)
 }
 
-export function apply(ctx) {
-  const webServer = ctx.get('webServer')
-  if (webServer === undefined) return
-  ctx.effect(() => webServer.register({
-    kind: 'exact',
-    path: ROUTE_PATH,
-    handler: (req, res) => void handleBalance(req, res, ctx),
-  }), 'dsh-balance: balance route')
+/** 动态加载 host.js 并挂成子插件；任何失败只报告，不向外抛。 */
+async function mount(ctx) {
+  let loaded
+  try {
+    loaded = await import(HOST)
+  } catch (error) {
+    report(ctx, error)
+    return
+  }
+  let fiber
+  try {
+    fiber = ctx.plugin(unwrap(loaded))
+  } catch (error) {
+    // 同步抛出的注册错误（插件形状不合法等）
+    report(ctx, error)
+    return
+  }
+  if (fiber !== undefined && typeof fiber.await === 'function') {
+    // cordis 的 apply 在微任务里执行，失败记在子 fiber 上、由 await() 抛出。
+    // 这里必须自己吞掉——漏出去会冒泡成父 fiber 的失败，那正是壳要挡的事。
+    void fiber.await().catch((error) => report(ctx, error))
+  }
+}
+
+/** 与 loader 的 unwrapExports 同形：解掉 default 与 esbuild 的 __esModule 包装。 */
+function unwrap(exports) {
+  if (exports === null || exports === undefined) return exports
+  let value = exports.default ?? exports
+  if (value.__esModule) value = value.default ?? value
+  return value
 }
